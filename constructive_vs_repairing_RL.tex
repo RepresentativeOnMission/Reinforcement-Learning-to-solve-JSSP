@@ -1,0 +1,684 @@
+\documentclass[12pt]{article}
+
+%**********************************************
+%* Add additional packages as needed
+
+\usepackage{url,amsmath,setspace,amssymb}
+\usepackage{listings}
+
+\usepackage{tcolorbox}
+\usepackage{tikz}
+\usepackage{xcolor}
+
+
+\usepackage{color}
+\def\R{\color{red}}
+\def\B{\color{blue}}
+
+\usepackage[english]{babel}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{graphicx}
+\graphicspath{ {./images/} }
+
+\usepackage{hyperref}
+%**********************************************
+%* Please replace this with your name and your AAU student number
+\newcommand{\studentname}{Massimo Calabrigo}
+\newcommand{\studentnumber}{12247382}
+
+
+
+%**********************************************
+%* Some more or less useful stuff, add custom stuff as needed
+
+\lstnewenvironment{myalgorithm}[1][] %defines the algorithm listing environment
+{
+   % \captionsetup{labelformat=algocaption,labelsep=colon}
+    \lstset{ %this is the stype
+        mathescape=true,
+        frame=none,
+        numbers=none,
+        basicstyle=\normalsize,
+        keywordstyle=\color{black}\bfseries\em,
+        keywords={,input, output, return, datatype, function, in, if, else, foreach, while, begin, end, },
+        numbers=left,
+        xleftmargin=.04\textwidth,
+        #1 % this is to add specific settings to an usage of this environment (for instance, the caption and referable label)
+    }
+}
+{}
+
+
+\newtcolorbox{alert}[1]{
+colback=red!5!white, colframe=red!75!white,fonttitle=\bfseries, title = #1}
+
+\newtcolorbox{commentbox}[1]{
+colback=black!5!white, colframe=black!75!white,fonttitle=\bfseries, title = #1}
+
+
+
+%**********************************************
+%* Leave the page configuration as is
+\setlength{\oddsidemargin}{.25in}
+\setlength{\evensidemargin}{.25in}
+\setlength{\textwidth}{6.25in}
+\setlength{\topmargin}{-0.4in}
+\setlength{\textheight}{8.5in}
+
+\newcommand{\heading}[5]{
+\renewcommand{\thepage}{#1\arabic{page}}
+\noindent
+\begin{center}
+	\framebox[\textwidth]{
+	\begin{minipage}{0.9\textwidth} \onehalfspacing
+	{\bf 650.060 -- \unitname} \hfill #2
+
+	{\centering \Large #5
+
+	}\medskip
+	{#3 \hfill #4}
+	\end{minipage}
+}
+\end{center}
+}
+
+\newcommand{\unitname}{Small Project in AI}
+%\newcommand{\maxpages}{5}
+\newcommand{\handout}[3]{\heading{#1}{#2}{\studentname}{\studentnumber}{#3}}
+
+%**********************************************
+%* The document starts here
+\begin{document}
+\handout{}{Winter Term, 2023/24}{A comparison between constructive and repairing approach to solve JSSP}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+
+
+Solving NP-Hard combinatorial problem has always been a task with lots of practical applications (Job Shop Scheduling in industrial settings, Vehicle Routing Problem for logistics), and traditionally 
+these problems were solved either by looking for euristics, which are polynomial time algorithms that produces optimal results on typical inputs \cite{np_hard_euristics}, 
+or Costraint Optimization Methods (COM) such as Genetic Algorithms \cite{jssp_genetic}, Constraint Programming and Linear programming \cite{or_tools}.
+
+\medbreak
+More recently another set of techniques based on Reinforcement Learning (RL) and Deep learning (DL) began to emerge (RL+DL), which is able to outperform \cite{neu_rewriter} or be very near \cite{pierre_constructive_approach} the 
+current state-of-art approaches. The most promosing advantage offered by RL+DL is the possibility of life-long learning \cite{pierre_constructive_approach}, which enables the agent trained on a subset of instances of a problem, to also generalize the knowledge it learned to other instances aswell.  
+Another relevant advantage of RL+DL, over aformentioned Constraint Optimization Methods, is that RL+DL can model the stochasticity of a problem, a property that can be easily seen in policy-gradient based RL architectures, in which, from a given state, the probability distribution of the actions to take is computed \cite{pierre_constructive_approach}.
+
+\medbreak
+In this work we will look at two approaches used to solve NP-Hard problems with RL+DL: the constructive RL approach \cite{pierre_constructive_approach}, 
+which builds the solution of the problem from scratch, and the repairing approach \cite{neu_rewriter}, which iteratively improves a given solution, with our goal being to apply the repairing approach to the Job Shop Scheduling Problem (JSSP).
+
+\medbreak
+In section \ref{sec:jss} we provide a description of JSSP and in section \ref{section:constructive} we explain the constructive approach that was used in ``A Reinforcement Learning Environment For Job-Shop Scheduling'' \cite{pierre_constructive_approach} to solve JSSP, 
+in section \ref{section:repairing} we explain the repairing approach used in NeuRewriter \cite{neu_rewriter}, that was used to solve three NP-Hard problems: Halide Expression semplification (HES), Multi-Resource tasks (MRT) and Vehicle Routing Problem (VRP), 
+focusing on the implementation of NeuRewriter to MRT, a similar problem to JSSP and 
+in section \ref{sec:analysis}, we make a comparison between the results obtained by the constructive approach on JSSP and the results obtained by NeuRewriter on the problems it solved, MRT especially.
+
+Finally, in section \ref{sec:jssp_repairing}, we enumerate a few possible implementations for a repairing-based RL+DL method to solve JSSP, and discuss in more detail one of them, also providing research questions to be investigated in future work.
+
+\medbreak
+\section{Job scheduling}
+\label{sec:jss}
+\subsection{Job shop scheduling - JSSP}
+We are given $m$ machines and $n$ jobs, where each job $J_i$ has at most as many operations as the number of machines: $o_{i,1},\dots,o_{i,k}$, $k \le n$. Each operation $o_{i,j}$, is a tuple of the form $(d_{i,j}, m_{i,j})$, where $d_{i,j} \in [1,T_{max}]$ is an integer value representing the duration of the operation, 
+while $m_{i,j} \in [1,m]$ is an integer indicating the machine on which the operation $o_{i,j}$ has to be executed. 
+
+The set of operations of each job is ordered, and the operations of each job must be executed in this order.
+In addition, each machine is only able to execute at most one operation at a time, precluding the possibility of concurrency within the same machine, and the execution of an operation can be neither stopped nor resumed.
+
+The objective is to find a schedule which minimizes either the makespan or the tardiness or the maximum lateness etc. \cite{wikipedia}. We set the makespan as the objective function to minimize, which is the earliest time in which all jobs have been scheduled and executed.
+
+\medbreak
+Given the following JSSP instance $$J_0=\{(3,0),(2,1),(2,2)\}, J_1=\{(2,0),(1,2),(4,1)\}, J_2 = \{(4,1),(3,2)\}$$ we provide two different solutions in Figure \ref{img:jsp_example}, along with their makespan. As we can see, operations belonging to the same job are executed in order and on different machines, with no parallelism being present on any single machine.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=14cm]{JSP_example.PNG}
+    \caption{This example shows 2 different solutions of the aformentioned JSSP instance with 3 machines and 3 jobs \cite{disjunctive_graph}. In the bottom solution, the earliest time in which every operation has been executed is 11, hence the makespan of the solution is 11, while the top solution has a makespan of 12. We conclude that the bottom solution is better than the top one because it does a better job in minimizing the makespan.}
+    \label{img:jsp_example}
+\end{figure}
+
+\medbreak
+\section{Constructive approach to solving JSS}
+\label{section:constructive}
+In this section we examine the constructive approach to solve JSSP, by analyzing the paper: ``A Reinforcement Learning Environment For Job-Shop Scheduling''\cite{pierre_constructive_approach}, 
+which adopts a constructive approach to solve the problem. Starting from no operation allocated, the constructive approach allocates one or more operations at each timestep until a solution is reached, and for this reason 
+it is called ``constructive''.
+
+\medbreak
+\subsection{Search space}
+\label{subsection:search_space_constructive}
+In this section we explore the discrete search space for the JSSP, describing both the state encodings and actions, the reward function and
+ the minimization objective of JSSP.
+ We further explore the reason why the action NO-OP was added, and the implementation of search rules to aid the algorithm to correctly learn to use NO-OP.
+
+\medbreak
+\subsubsection{States}
+Each state represents a scheduling at time $t$ of an instance of JSSP, and it is encoded as a $|J|\times7$ matrix $M_1$.
+The encoding contains 7 attributes for each job\cite{pierre_constructive_approach}.
+\begin{enumerate}
+    \item A Boolean to represent if the job can be allocated.
+    \item The left-over time for the currently performed operation on the job. This value is scaled by the longest operation in the schedule to be in the range $[0, 1]$.
+    \item The percentage of operations finished for a job.
+    \item The left-over time until total completion of the job, scaled by the longest job total completion time to be in the range $[0, 1]$.
+    \item The required time until the machine needed to perform the next job’s operation is free, scaled by the longest duration of an operation to be in the range $[0, 1]$.
+    \item The IDLE time since last job’s performed operation, scaled by the sum of durations of all operations to be in the range $[0, 1)$.
+    \item The cumulative job’s IDLE time in the schedule, scaled as 6) to be in the range $[0, 1)$.
+\end{enumerate}
+We provide as example the encoding of a solution to the following JSSP instance, $J_1 = \{(4,1),(3,2),(4,0)\}, J_2 = \{(2,0),(1,2),(4,1)\}, J_3 = \{(2,0),(3,1),(1,2)\}$, at timestep $t=7$, in Figure \ref{img:encoding_constructive_example}.
+
+\medbreak
+The matrix $M_1$, obtained from encoding the state $s_1$, can be decoded to a set of states ${s_1,\dots,s_k}$, however, $M_1$ holds enought information to garantee 
+that starting from any of the reconstructed states, equivalent solutions will be reached \cite{pierre_constructive_approach}.\\
+Each state $s_i$, is a couple defined by both a matrix $M_i$ as described above, and an array of booleans B$={[b_1,\dots,b_{|J|+1}]}$ of size $|J|+1$, which indicates which actions are legal and can be taken: $s_i = (M_i, B_i)$.\\
+The concept of ``legality of an action'' is motivated by the need to better learn the NO-OP action, and it is explained in the next subsection.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=14cm]{encoding_constructive_example_v2.PNG}
+    \caption{On the bottom a schedule at timestep $t=7$ for the aformentioned JSSP instance is shown, and on the top, the $|J|\times7$ matrix encoding for the same schedule is shown.}
+    \label{img:encoding_constructive_example}
+\end{figure}
+
+\subsubsection{Actions}
+The set of actions for a state $s_t$ contains $|J|$ operations $o_{i,j}$ (the current allocatable operation from each job $J_i$), plus an additional NO-OP action, which allocates no jobs: A$=\{J_1,\dots,J_n,$NO-OP$\}, |A|=|J|+1$.
+Adding the action NO-OP to the action set enables a wider search space because the algorithm is able to choose not to allocate a job, even if that job could be allocated, 
+also enabling more complex strategies involving waiting in order to schedule a more suitable job, but the problem with NO-OP is that it is complex to learn, and if not learned correctly, could resulting in an 
+ algorithm with worst result than greedy policies \cite{pierre_constructive_approach}.
+ 
+ \medbreak
+ In order to correctly learn NO-OP we make use of the boolean vector $B$ of legal actions which is present in every state, and that effectively reduces the set of possible actions that can be taken from state s$=(M,B)$, by implementing the following rules.
+\begin{itemize}
+    \item \textbf{NO-OP Symmetry rule}: The symmetry introduced by NO-OP regarding the order of execution betweem the NO-OP action and an allocatable Job $J_i$ in a given timeframe is broken, by imposing that, if at time $t$, operation NO-OP is taken when $J_i$ was allocatable, then $J_i$ becomes an illegal action ($B[i]=$False) until another action is executed.
+    \item \textbf{NO-OP suppression rule}: If there are 4 free machines, or the $15\%$ or more of the jobs are allocatable, then we make the usage of NO-OP illegal until the conditions of the suppresion rule are no longer valid ($\forall i, B[i]=\mathit{False}$).
+\end{itemize}
+
+\medbreak
+Implementing NO-OP gives not only the possibility of enabling more complex scheduling strategies, but
+ also addresses the effect of symmetry caused by different schedules which leads to the same solution, but have different ordering of jobs.\\
+ It does so by forcing some ordering on the jobs allocation, due to NO-OP usage being dependent of the number of available machines and allocatable jobs \cite{pierre_constructive_approach}.
+ 
+\medbreak
+\subsubsection{Reward Function}
+The natural reward function for the JSSP task would be the makespan function, but due to the fact that the search space includes not only solutions, but also schedulings where not all jobs have been scheduled, using 
+the makespan as reward function would result in a \textbf{sparse reward function}, given that it can give a reward only when all jobs have been scheduled.\\
+To make up for this problem, the authors of ``A Reinforcement Learning Environment For Job-Shop Scheduling'' decided to use a dense reward function $$r(s,a) = p_{a,j}-empty_m(s,s^{'})$$
+ which can be computed on every schedule in the search space, and they also analyze the relashionship between the goal of minimizing the makespan and maximizing their dense function, to make sure that the same goal is being achieved (Figure \ref{img:reward_constructive}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=10cm]{reward_fun_constructive.PNG}
+    \caption{We can see there is a clear relashionship between the goal of minimizing the makespan (blue), and maximizing the dense reward function (orange) designed above \cite{pierre_constructive_approach}}
+    \label{img:reward_constructive}
+\end{figure}
+
+\medbreak
+\subsection{Objective function and Architecture}
+\label{subsection:model_constructive}
+The model chosen to solve JSSP instances with the constructive approach paper is PPO (Proximal Policy Optimization), combined with the Actor Critic Approach, see Figure \ref{img:architecture_constructive}.\\
+Actor Critic methods are a combination of policy-based (actor) and value-based methods (critic), allowing for faster training than policy-based methods such as REINFORCE \cite{rl_introduction}, but not being as unstable as value-based methods Q-Network \cite{rl_introduction}.\\
+A problem of Vanilla Actor Critic methods is that they tend to suffer from \textbf{policy-crash} if the step-size is inadeguate \cite{pierre_constructive_approach}, 
+so PPO is used as policy-based method instead of REINFORCE. PPO tries to take the biggest possible step without causing policy-crash \cite{pierre_constructive_approach},
+ hence combining the advantages of faster training provided by using a Critic, and having a PPO actor that decreases the probability to cause policy-crash.
+
+ \begin{figure}[H]
+    \centering
+    \includegraphics[width=12cm]{architecture_constructive.PNG}
+    \caption{The state-value function on top, and the action selection network on the bottom, both takes as input the matrix $M$ of the state $s=(M,B)$, while the action selection network also makes use of the vector of legal actions $B$.\\ We can see that in the action-selection network a function $f(network\_output,B)$ is used to reduce the network outputs, where B[i] is set to ``illegal action'', to small negative numbers before softmax is applied, doing so, illegal actions will have a close to zero probability of being allocated.}
+    \label{img:architecture_constructive}
+\end{figure}
+
+\medbreak
+The objective function for the Actor Critic method with Clipped PPO policy-based method is expressed as follow: 
+\label{constructive_loss}
+$$L=min\left(\frac{\pi_{\theta}(a|s)}{\pi_{\theta_k}(a|s)}A^{\pi_{\theta_k}}(s,a), g(\epsilon, A^{\pi_{\theta_k}}(s,a))\right)$$
+$$g(\epsilon,A)= 
+\begin{cases}
+    (1+\epsilon)A               & \text{if } A\geq 0\\
+    (1-\epsilon)A,              & \text{otherwise}
+\end{cases}
+$$
+where $\theta$ and $\theta_k$ are the parameters of the new and old policies respectively \cite{pierre_constructive_approach}.
+
+\medbreak
+\section{Repairing approach to solving NP\_Hard Problems}
+\label{section:repairing}
+In this section we will examine the second RL+DL based method to solve NP-Hard problems: the repairing approach \cite{neu_rewriter}.\\
+The repairing approach, or NeuRewriter, works on a search space constituted only by solutions of an instance of a problem, and instead of constructing a solution from scratch (like the constructive approach to solve JSSP \ref{section:constructive}), 
+it learns an algorithm to iteratively improve the solution (in terms of the reward objective), jumping from one solution to another.
+
+\medbreak
+NeuRewriter is applied to three NP-Hard problems: Vehicle Routing Problem (VRP), Halide Expressions Semplification (HES) and Multi-Resources Tasks (MRT), using the same architecture for all three problems, but training separate models.\\
+ We will concentrate on the application of NeuRewriter to MRT, given that MRT is a variant of JSSP, but we will also see the results NeuRewriter on HES and VRP.
+
+ \medbreak
+\subsection{Search space}
+In the repairing approach, the search space for an instance of a NP-Hard problem is the set of all solutions for that instance. Differently from the constructive approach, NeuRewriter makes assumptions on the structure of the search space, by defining a search space as \textbf{suitable} \cite{neu_rewriter} if it has 2 characteristics:
+\begin{enumerate}
+    \item A feasible solution is easy to get. For example we can use Earliest Job First (EJF) for the MRT problem (P complexity), or Most Work Remaining (MWKR) for JSS problem (P complexity).
+    \item The search space should have ``well-behaved local structures'' \cite{neu_rewriter}, which means that it is possible to find some policy $\pi(a|s)$, such that we can iteratively jump from a solution $s$ to a better solution $s^{\prime}$.
+     More in general, if a search space is such that the good policies for that problem have to make a lot of bad decisions that gives a small negative reward, and a few good decisions that gives a large reward, then the search space does not have ``well-behaved local structures''.
+\end{enumerate}
+
+\medbreak
+\subsubsection{Multi-Resources Tasks Problem}
+Suppose we have a single machine with $m$ Jobs $J_1,\dots,J_m$, each of which is a tuple $J_i = (\{D_1,\dots,D_k\}, A_i, T_i)$, and where $D_j \in [0,1]$ are the resources, $A_i$ is the arrival time, and $T_i$ is the duration of the job.\\
+In addition, we define $B_i$ as the time in which the job $J_i$ is taken, and $C_i = B_i + T_i$ as the completion time \cite{neu_rewriter} (An example in Figure \ref{img:mrt_example}).\\
+The objective of the MRT problem is to find a schedule for the $m$ jobs in a single machine such that the average waiting time is minimized, and such that the schedule satisfies the following constraints.
+\begin{itemize}
+    \item A Job $J_i$ can be taken only from it's arrival time $A_i$ onwards.
+    \item At any timestep t, the sum of the resources of the scheduled jobs, for each resource type, can't exceed $1$ ($100\%$).
+    \item When the execution of a job starts, it must go on until it finishes.
+\end{itemize}
+Each solution for an instance of the MRT problem has one univoque DAG $G(V,E)$ encoding defined as follows.
+\begin{enumerate}
+    \item There are $|J|+1$ nodes, where $v_0$ represents the machine, and $v_i$ represents $J_i$: $V=\{v_0,v_1,\dots,v_{|J|+1}\}$.
+    \item An edge $(v_0,v_i)$ is added when $J_i$ is taken as soon as it becomes available ($A_i=B_i$), and an edge $(v_{i^{'}},v_i)$ is added when $J_i$ is taken as soon as $J_{i^{'}}$ finishes ($B_i = C_{i^{'}}$).
+\end{enumerate}
+We provide as example both a solution and its DAG encoding in Figure \ref{img:mrt_example}, to the following MRT instance, $J_1 = \{D_1=(0.5,0.4),A_1=1,T_1=2\}, J_2 = \{D_2=(0.5,0.2),A_2=2,T_2=2\}, J_3 = \{D_3=(0.2,0.4),A_3=2,T_3=1\}, J_4 = \{D_4=(0.3,0.4),A_4=1,T_4=3\}, J_5 = \{D_5=(0.5,0.5),A_5=3,T_5=1\}$.
+
+\medbreak
+In the original work, NeuRewriter solves the online version of MRT, which redefines the problem, by adding a queue and a new constraint as defined below.\\
+In the online version of MRT there are $m$ jobs, and a queue $W$ containing at most $|W|$ jobs, with jobs arriving in the queue at each timestep with some probability, with the additional constraint that if the queue is full, and a new job $J_i$ arrives, then, either $J_i$ or a job in the queue must be scheduled immediately.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=12cm]{MRT_example_v2.PNG}
+    \caption{On the left a solution of the aformentioned MRT instance with 5 Jobs and 2 Resources, and on the right the DAG for that solution. Note that 
+    at any time $t$, the sum over one resource type is always $\le 1$.}
+    \label{img:mrt_example}
+\end{figure}
+
+\medbreak
+\subsubsection{States and embeddings}
+\label{sec:states_repairing}
+The states of the MRT problem are represented as $s=((J_1,\dots,J_m)$, DAG), where $(J_1,\dots,J_m)$ are the scheduled jobs, and DAG is the scheduling order of the solution, computed as shown in the previous section \ref{section:repairing}.\\
+A solution could be embedded simply using the scheduled jobs, but the authors of NeuRewriter decided to make use of the scheduling order DAG, in order to make the scheduling order more explicit in the embedding.
+
+\medbreak
+In order to make use of the region and rule-secting policies, which are neural networks, we first need to turn the solution s=($(J_1,\dots,J_m)$, DAG), into a set of vector embeddings.\\
+To do this we first create $m$ embeddings $e_1,\dots,e_m$ where each embedding is a vector $e_i \in R^{D*(T_{max}+1)+1}$ that represents the scheduled job $J_i$, and where $T_{max}$ is a constant 
+representing the maximum possible duration of a job (implementation details can be found in NeuRewriter paper \cite{neu_rewriter}). Then we make use of an extended version of Child-Sum Tree LSTM architecture \cite{lstm_tree}, in order to embed both $e_i$ and the DAG in one embedding $h_i$:\\
+Suppose the scheduled instance $J_i$, which is represented as $v_i$ in the DAG has p parents: $parent(v_i) = \{v_k,v_{k+1},\dots,v_{k+p-1}\}, p = |parent(v_i)|$, then $$(h_i,c_i) = LSTM[(\sum_{j \in parent(v_i)}(h_j), \sum_{j \in parent(v_i)}(c_j)), e_i]$$
+where $h_0, c_0$ are randomly initialized, $h_j$,$c_j$ are the embeddings of the node $v_j$.
+
+By computing the embeddings for each $e_i$, we obtain an array of $m$ embeddings: $h_1,\dots,h_m$, univoquely representing a solution.
+
+\medbreak
+\subsubsection{Actions}
+The set of rewriting rules is to reschedule a job $v_i$ and allocate it after another job $v_{i^{'}}$ finishes or at its arrival time $A_i$.\\
+Given a queue of $W$ jobs in the online MRT, the rewriting rules set has size $2*W$, since each job could only switch its scheduling order with at most $W$ of its former or latter jobs. \cite{neu_rewriter}
+
+\medbreak
+\subsubsection{Reward Function: Average Waiting Time}
+The reward function for all the 3 problems solved by NeuRewriter is defined as $$r(s_i, a_i=(w_i,u_i)) = c(s_i) - c(s_{i+1})$$ where $c$ is an evaluation function which is defined specifically for each different problem.\\
+In MRT, we define the Average Waiting Time function (or Average Job Slowdown) as the evaluation function: $c(s) = \frac{1}{k} * \sum_{i=1}^{m}(\frac{C_{s[i]} - A_{s[i]}}{T_{s[i]}})$, where $s[i] = J_i$ of solution s.\\
+ The Average Waiting Time function measures how much time in average, jobs have to wait from the 
+time they become availabe $A_i$ to the time in which they are taken $B_i$. When all jobs are taken as soon as they arrive $(B_i=A_i)$, then $c(s)=1$, else, as $c(s)$ becomes larger, the quality of the solution decreases. An example is provided in figure \ref{img:mrt_reward}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=16cm]{reward_repairing.PNG}
+    \caption{An example to illustrate the evaluation function for MRT \cite{neu_rewriter}. On the center, scheduling1 has an evaluation value of $10/9$, while scheduling2 has an evaluation value of $19/9$. Scheduling 1 is clearly better than scheduling2, and if we were to jump from scheduling1 to scheduling2, the reward function $r(s_i, a_i=(w_i,u_i))$ would be negative.}
+    \label{img:mrt_reward}
+\end{figure}
+
+\medbreak
+\subsection{Model and Architecture}
+NeuRewriter solves NP-Hard problems by first selecting a region $w_t$ of the solution using a region-selecting policy $w_t \sim \pi_{\theta}(w_t|s_t)$, and then selecting a 
+rule $u_t$ using a rule-selecting policy $u_t \sim \pi_{\theta}(u_t|s_t[w_t])$ \cite{neu_rewriter}.
+
+\medbreak
+In the case of MRT, a region is an embedding $w_t = h_i$, that contains information about the job $J_i$ along with its DAG scheduling order, while selecting a rewriting rule means to choose a couple of embeddings $(h_i, h_{i^{'}})$, that are linked by an edge in the DAG of a solution $s_t$, and swap them.\\
+See Figure \ref{img:region_rules_repairing} for examples of regions and rules applied to the NP-Hard problems in NeuRewriter.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=16cm]{region_rules_repairing.PNG}
+    \caption{This example shows the regions and rules for a) Halide Expression semplification, b) MRT and c) VRP. We can see that in b) the region $w_t$ is a node, while the rule $u_t$ selects and swaps two nodes \cite{neu_rewriter}.}
+    \label{img:region_rules_repairing}
+\end{figure}
+
+\subsubsection{Region-Selecting Policy}
+\label{sec:region_selecting}
+The region selecting policy $\pi_{w}(w_t|s_t)$ outputs the probability distribution of regions, which is computed by applying a score function $Q_{\theta}(s_t,w_t)$ to every region of the state $s_t$, followed by a Softmax function.\\
+We define the region-selecting policy as $$\pi_{w}(w_t|s_t) = \frac{exp(Q_{\theta}(s_t,w_t))}{\sum_{w_i \in s_t}exp(Q_{\theta}(s_t, w_i))}$$ and proceed to learn a score function $Q_{\theta}(s_t, w_t)$, which computes a score for every region of the solution, where a high score indicates that rewriting the region $w_t$ in the solution $s_t$: $s_t[w_t]$, could be desiderable \cite{neu_rewriter}.\\
+In order to learn $Q_{\theta}(s_t, w_t)$, we fit it to the cumulative reward sampled from the current policies $\pi_w, \pi_u$:
+
+\medbreak
+Given an episode $\left(s_0,(w_0,u_0)\right),\dots, \left(s_{T-1},(w_{T-1},u_{T-1})\right), s_T$, the regions-selecting loss $L_w(\theta)$ is defined as follows:
+\label{region_selecting_loss}
+$$L_w(\theta) = \frac{1}{T}\sum_{t=0}^{T-1}\left(\sum_{t^{'}=t}^{T-1}\left(\gamma^{t^{'}-t}r(s_{t^{'}},(w_{t^{'}},u_{t^{'}}))\right) - Q_{\theta}(s_t,w_t)\right)^2$$
+where $Q_{\theta}(s_t, w_t)$ is implemented as a forward dense neural network with $1$ hidden layer with ReLu activation and $256$ neurons, receiving as input the embedding of a region $h_i$, and giving as output a score $c_i$.\\
+After having applied $Q_{\theta}(s_t, w_t)$ to all the regions of the solution $s_t$, we have an array of scores $(c_1,\dots,c_m)$, where $m$ is the number of regions, and in the case of MRT, $m=|J|$. Softmax and multinomial sampling can then be applied to 
+$(c_1,\dots,c_m)$ in order to select a region $w_t$.
+
+\medbreak
+\subsubsection{Rule-Selecting Policy}
+\label{sec:rule_policy_repairing}
+Given the region of the solution we want to rewrite $s_t[w_t]$, the rule-selecting policy outputs the probability distribution of the rewriting rules that can be taken in region $s_t[w_t]$: $\pi_{u}(u_t|s_t[w_t])$, from which a rule $u_t$ can be sampled.
+
+\medbreak
+The rule-selecting policy is implemented using a REINFORCE+Baseline method \cite{rl_introduction}, which reduces variance and speeds up learning with respect to Vanilla Policy Gradient using the learned $Q_{\theta}(s_t,w_t)$ function as baseline.\\
+Given an episode $\left(s_0,(w_0,u_0)\right),\dots, \left(s_{T-1},(w_{T-1},u_{T-1})\right), s_T$, the rule-selecting loss $L_u(\phi)$ is defined as follows:
+$$ L_u(\phi) = -\sum_{t=1}^{T}\left(\sum_{t^{'}=t}^{T}\left(\gamma^{t^{'}-t}*r(s_{t^{'}},(w_{t^{'}},u_{t^{'}}))\right) - Q_{\theta}(s_t,w_t)\right) \cdot ln(\pi_u(u_t|s_t[u_t],\phi))$$
+
+The architecture of the rule-selecting policy is split in two separate Multi-Layer Perceptrons (MLP), the first of which, given a regions $v_i$ creates a vector of embeddings of all possible rewriting rules that can be taken from that region $\{h^{'}_{i_1},\dots,h^{'}_{i_{|U|}}\}$, and the second uses the output of the first, to compute the probability distribution of the rewriting rules $U$.
+
+\medbreak
+Given the region $v_i$ (a node in the DAG in the case of MRT) with nodes $\{v_{i_k}\}$, being the set of nodes that are the parents of $v_i$, a set of couples embeddings is created coupling $v_i$ with each of its parents $v_{i_k}$, such that the size of the set $K = |\{(h_i,h_{i_k}\})|$ is less or equal to the set of all possible rewriting rules $U$ that can be taken from a region: $K \le |U|$.
+
+Each couple of embeddings, then, is concatenated into a single vector (in the case of MRT, $(h_i,h_{i_k}) \in R^{1024}$), and fed to a MLP with one hidden layer with 256 neurons and ReLu activation, and outputs an embedding $h^{'}_{j_k} \in R^{512}$, which represents the couple $(h_i,h_{i_k})$.\\
+The set of $K$ couple embeddings $\{h^{'}_{i_k}\}$ is computed, and if $K < |U|$, then the embeddings $h^{'}_{i_{K+1}},h^{'}_{i_{K+2}},\dots,h^{'}_{i_{|U|}}$ are set to vectors of zeros (of size $R^{512}$).\\
+
+Given the set of couple embeddings $\{h^{'}_{i_k}\}$ computed above, all of the couple embeddings are concatenated into a vector $(h^{'}_{j_1},\dots,h^{'}_{j_{|U|}}) \in R^{|U|*512}$, and fed to a MLP with one hidden layer with 256 neurons and ReLu activation, with the output layer having $|U|$ neurons, and softmax activation.\\
+In the end we get an array of $|U|$ probabilities $p_1,\dots,p_{|U|}$, which is the probability distribution of the rewriting rules, from which we can sample a rewriting rule $u_t$.
+
+\subsubsection{Rewriting a solution for the MRT problem}
+\label{sec:rewriting_step}
+Given a solution $s_t$, we described a method to sample both a region $w_t=v_t$ (the job to reschedule), and an action $u_t = (v_t,v_{t^{'}})$ (a couple of jobs), but simply swapping the two jobs could result in violating the 
+resource of time constraints of the other scheduled jobs, for this reason we need a function $s_{t+1} = f(s_t,v_t,u_t)$, that reschedules the jobs that are violating some constraint after the swap 
+(for example, given a job $v_1$ with a duration of $3$, a job $v_2$ with a duration of $4$, and a job $v_3$ that is scheduled right after $v_1$ in $s_t$, then after swapping $v_1$ with $v_2$, 
+ $v_3$ will begin before $v_2$ finishes, and the resources may not be sufficient to allow that. To fix this we need to reschedule $v_3$, which was not involved directly in the swap, but suffered the consequences), see Figure \ref{img:rewriting_rule}.\\
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=14cm]{rewriting_rule.PNG}
+    \caption{This example shows the algorithm for the rewriting rule for the MRT problem \cite{neu_rewriter}. Given $v_j$, $v_{j^{'}}$ that were chosen with the region-selecting and rule-selecting policies, this algorithm first checks if the jobs can be swapped, and then it swaps them, by rescheduling in topological ordering the jobs $v_i \neq v_{j^{'}}$ that falls on the time interval $[B_{j^{'}},C_{j^{'}}]$, of the swapped jobs $x_{j^{'}}$, leaving the rest of the jobs untouched.}
+    \label{img:rewriting_rule}
+\end{figure}
+
+\subsection{Training}
+\label{sec:repairing_train}
+The overrall objective function that is trained combines both the Region-Selecting loss $L_w(\theta)$ and the Rule-Selecting policy loss $L_u(\phi)$ into a single loss $$L(\theta,\phi) = L_w(\theta) + \alpha*L_u(\phi)$$ where $\alpha$ is an hyper-parameter that is set to $10$ for all the problems on which NeuRewriter is trained.
+
+\medbreak
+The algorithm presented in Figure \ref{img:training_repairing} presents the details of the forward pass during training. 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=14cm]{training_repairing.PNG}
+    \caption{This example presents the forward pass algorithm for Neural Rewriter during training for an episode of size $T_{iter}$\cite{neu_rewriter}. At every iteration a region $w_t$ and a rule $u_t$ are sampled from the current policies, $w_t$ is resampled if it has a negative Q-Value, while $u_t$ is resampled if it is not applicable. In the case of MRT, the hyperparameters are $T_{iter}=50$ (size of the episode), $T_u=T_w=10$ (maximum number of re-samplings), $\epsilon=0.0$ and $p_c=0.5$ is decayed by $0.8$ every $1000$ steps, until $p_c=0.01$. The function $f$ is the ``Rewriting Step Algorithm'', shown in section \ref{sec:rewriting_step}.}
+    \label{img:training_repairing}
+\end{figure}
+The dataset $D$, which contains 100K job sequences divided in 80K,10K,10K as train/validation/test set, was randomly generated as shown below. NeuRewriter was trained to solve the online MRT problem, with every sequence containing $50$ jobs and with a queue $W$ of size $10$, where jobs arrives on the fly.\\
+The maximal duration of a sequence is $T_{max}=50$ and the latest arrival time for a job $A_{max} = 50$ \cite{neu_rewriter}.\\
+
+\medbreak
+To test for generalizability and stability of NeuRewriter, the dataset $D$ is generated by sampling from different distributions of job sequences, where each distribution defines a job property as a random variable, while keeping the other job properties fixed.\\
+A NeuRewriter model is trained separately on each distribution.
+\begin{enumerate}
+    \item \textbf{Number of resources type}: The number of resources $D$ that each job in the sequence varies in the range $[2,20]$. Average job arrival is steady, Resource distribution and Job lengths are non-uniform.
+    \item \textbf{Average job arrival}: The probability of a job arriving in the queue at timestep $t$ can be either steady ($70\%$ of arrival), or dynamic (the percentage changes randomly). D=20, Resource distribution and Job lengths are non-uniform.
+    \item \textbf{Resource distribution}: The quantity of resources occupied for each resource type can be either uniform (for example, for D=2, both resources are set to 0.4), or non-uniform (for example, for D=2, the first resource is set to 0.3, while the second to 0.4) for each job of the sequence. D=20, Average job arrival is steady and Job lengths are non-uniform.
+    \item \textbf{Job lengths}: The duration of each job in the job sequence can be either long $[10,15]$, or short $[1,3]$. D=20, Average job arrival is steady and Resource distribution is non-uniform.
+\end{enumerate}
+
+\section{Analysis}
+\label{sec:analysis}
+In this section we first provide a comparison between the constructive and repairing approach to solve NP-Hard problems, in particular motivating the comparison between the results of NeuRewriter \cite{neu_rewriter} on MRT and the results of the constructive approach \cite{pierre_constructive_approach} on JSSP. 
+The application of the repairing approach to JSS is also provided as a research question, with details on how to do the actual implementation.
+
+\subsection{Comparing constructive and repairing approaches}
+Comparing NeuRewriter and the constructive approach is problematic because these two approaches do not solve the same problems:
+ NeuRewriter solves Multi-Resources Task, VRP and Halide Expression semplification, while the constructive approach solves JSSP.\\
+ In order to compare the models, we will use the results of NeuRewriter applied to MRT (which is a variant of JSS), and the results of the constructive approach on JSS, discarding 
+ the other confrontations because either they are similar problems that prioritize different strategies (JSS-VRP)\cite{VRP_vs_JSS}, or they are very different problems (JSS-Halide).\\
+
+\subsubsection{Assumptions of the repairing approach}
+The repairing approach, differently from the constructive approach, makes two assumptions on the solution search space of a problem, such that if satisfied, would make repairing especially suitable to solve the problem.
+\begin{enumerate}
+    \item An initial solution can be found very easily, with a polynomial-time algorithm (for example Shortest Job First for JSS).
+    \item The solution search space should have ``well-behaved local structures'', that is, it should be possible to find a policy such that, by jumping from a solution to another, the solution is being iteratively improved.
+\end{enumerate}
+The repairing approach also formulates a \textbf{scalability hypothesis}, such that if the above assumptions hold, then, as the instance of an NP-Hard problem gets larger, the repairing approach will obtain better solutions than constructive approaches.
+
+\medbreak
+The authors of NeuRewriter \cite{neu_rewriter} justify this hypothesis saying that, as the instance of a problem becomes larger, repairing a solution that was already computed with a euristic such as SJF (Shortest Job First), gives the repairing algorithm some basic knowledge of a solution that is already quite good, and just needs some corrections, while the constructive approach would have to do everything from scratch.
+
+\medbreak
+For the purpose of this work, that is to formulate an application of the repairing method to JSS, we will assume that JSS solution search space also satifies the two assumptions (the first assumption is trivial to check, while for the second we hypothesize that the good performances of NeuRewriter on a variant of JSS (MRT) means that also JSS has ``well-behaved local structures'').
+
+
+\subsubsection{Comparison of constructive and repairing approaches}
+The constructive approach trained on JSSP \cite{pierre_constructive_approach} was tested against two other constructive approaches in the literature: (Zhang et al. 2020) and (Hang and Yang 2020), two euristics: Most Work Remaining (MWKR) and First-in First-out (FIFO), and OR Tools \cite{or_tools}.\\
+The results are shown in Figure \ref{img:constructive_results}. The constructive method outperforms both the euristics, and the other constructive approaches found in literature, but is outperformed by OR Tools, which scores $7\%$ better on Taillard's instances, and $6\%$ better on Demirkol's instances than the constructive approach \cite{pierre_constructive_approach}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=14cm]{constructive_results.PNG}
+    \caption{}
+    \label{img:constructive_results}
+\end{figure}
+The repairing approach trained on Online MRT was tested against Euristics: Shortest Job First (SJF), Earlier Job First (EJB) and Shortest First Search (SJFS), 
+against offline planning methods which solved the offline version of the problem: SJF-offline and OR Tools, and against a constructive approach: DeepRM \cite{deep_rm}, 
+which were all applied/trained on the dataset $D$ generated in the NeuRewriter work, shown in section \ref{sec:repairing_train}.\\
+\\
+In Figure \ref{img:repairing_results}, we can see that NeuRewriter is able to generalize well between different probability distributions. 
+The \textbf{scalability hypothesis} is also confirmed when NeuRewriter is compared with DeepRM (a constructive approach which uses REINFORCE policy-based algorithm \cite{rl_introduction}): as the number of resources $D$ increases DeepRM solutions becomes increasingly worst, while the quality of the solutions of NeuRewriter is little changed.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=16cm]{repairing_results.PNG}
+    \caption{Experimental results of the MRT problem varying the following aspects: (a) the number of resource types D; (b) job frequency; (c) job frequency; (d) job length \cite{neu_rewriter}.}
+    \label{img:repairing_results}
+\end{figure}
+
+It is not possible to directly draw conclusion on which method is better without testing both on the same problem, namely JSSP, but the results of NeuRewriter on MRT, a similar problem to JSS, 
+and the similarities between DeepRM and the constructive approach for JSSP (the first uses policy-based REINFORCE, while the second uses Actor-Critic PPO, but they both are constructive approaches), suggests that, if 
+the hypothesis about the ``suitability'' of the repairing approach on JSS holds, then the repairing approach should behaves better than the constructive approach when applied to JSS.
+
+\medbreak
+\section{Applying the repairing method to JSSP}
+\label{sec:jssp_repairing}
+In order to investigate the hypothesis that the repairing approach behaves better than the constructive approach on JSSP we discuss a possible implementation, where we apply the repairing approach to JSSP.
+
+\medbreak
+In the following section we link JSS solutions to Disjunctive Graphs and provide a possible implementation of the repairing approach to JSS, along with some research questions.
+
+\medbreak
+\subsection{The Disjunctive Graph}
+\label{sec:disjunctive}
+The Disjunctive graph is a Directed Acyclic Graph (DAG) $G = (V,C \cup D)$ which allows to represent all \textbf{feasible solutions} of JSSP instances.\\ 
+More formally, the Disjunctive graph is defined as $G = (V,C \cup D)$ \cite{disjunctive_graph}, see Figure \ref{img:disjunctive_graph}.
+\begin{itemize}
+    \item $V$ is the set of vertices corresponding to operations, plus two nodes representing the start and end of the scheduling. Each vertex, except the start and end ones, are operations of a job.
+    \item $C$ is the set of \textbf{conjunctive edge}, that contains edges between the $i^{th}$ and $(i+1)^{th}$ operation of a job $J$, and represents an order of execution constraint. We also add conjunctive arcs from $s$ to every first operation of every job, and from every last operation of every job to t. Black arcs in Figure \ref{img:disjunctive_graph}.
+    \item $D$ is the set of \textbf{disjunctive edge}, where each edge links operations that are to be processed on the same machine, and represents an order of execution constraint. Dotter arcs in Figure \ref{img:disjunctive_graph}.
+\end{itemize}
+To determine a schedule we have to define an ordering of all operations processed on each machine. This can be done by orienting all dotted or dashed edges such that each clique corresponding to a machine becomes acyclic.
+
+\medbreak
+We also want to avoid cycles between disjunctive and conjunctive arcs because they lead to infeasible schedules. A feasible schedule is represented by a directed acyclic disjunctive graph and a complete orientation of the edges in $D$ defines a feasible schedule if and only if the resulting directed disjunctive graph is acyclic \cite{disjunctive_graph}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=14cm]{disjunctive_graph.PNG}
+    \caption{An example of a disjunctive graph (below), representing a specific solution (above) of the JSSP instance: \{$J_0$=[(0,3),(1,2),(2,2)], $J_1$=[(0,2),(1,2),(1,4)], $J_2$=[(1,4),(2,3)]\}.}
+    \label{img:disjunctive_graph}
+\end{figure}
+
+An important property of Disjunctive Graph of which we will make use on the next section is that, starting from any given feasible solution $s_0$ of a JSSP instance,
+ it is possible to reach any other feasible solution $s_j$ of the same instance in a finite number of steps, where a step is defined as reversing the direction of a disjunctive edge.
+
+\subsection{The Repairing Approach applied to JSSP}
+In the last section we introduced Disjunctive Graphs \label{sec:disjunctive}, and we will make use of them by defining the search space of the repairing approach 
+applied to JSSP as the set of all feasible solutions of a given JSSP instance.
+
+\medbreak
+\label{sec:regions}
+There are a couple of different ways to define what a region, and what a rule are in JSSP:
+\begin{enumerate}
+    \item A region is a disjunctive edge $(v_j,v_{j^{'}})$, and, given that region, the only possible rule is to change the direction of the selected edge.
+    \item A region is a single node $v_j$ of the Disjunctive graph $G$ (this is the same encoding that NeuRewriter applied to MRT), and the rules are the couple of nodes $(v_j, v_{j^{'}}) \in G$, such that $(v_j, v_{j^{'}})$ is a disjunctive edge.
+    \item A region is a subgraph $C \subset G$, that contains all the nodes and edges in $G$ that are scheduled in the same machine $M_i$, and the rules are the couple of nodes $(v_j, v_{j^{'}}) \in C$, such that $(v_j, v_{j^{'}})$ are disjunctive edges.
+\end{enumerate}
+In this section we provide the implementation of the first of the three options, and leave as an open research question the discussion and implementation of the others two.
+
+\medbreak
+\subsubsection{States and embeddings}
+
+To solve JSSP, we define a region-policy $\pi_{w}(w_t|s_t;\theta)$, 
+where the set of all possible regions of a solution: $\Omega(s_t)$ is defined as the set of disjunctive arcs $D_{s_t}$ of the solution $s_t$.\\
+Differently from NeuRewriter, that in order to jump from a solution $s_t$ to another solution $s_{t+1}$, defined both a region-selecting and a rule-selecting policy, we will embed
+ both of them into a region-rule-selecting policy $\pi_{u}(u_t|s_t;\theta)$ because, once an edge $u_t$ is sampled, there is only one possible action (to change the direction of the edge).
+
+\medbreak
+As with NeuRewriter, states needs to be embedded into vectors in order to be fed to the policy neural network.\\
+ In our case a region/rule is a disjunctive arc $(v_i,v_{i^{'}})$, so we first create an embedding $e_i$ for every node $v_i$ in $G$, using a function $e_i = f(v_i)$, as it was done in NeuRewriter \ref{sec:states_repairing}. 
+ The function $f$ should create an embedding which uniquely identifies the operation $v_i$, here we define a naive function $f$, but a better implementation is left as an open research question.
+
+ \medbreak
+ Given a node $v_i$, representing the operation $o_{v,j}=\{d_{v,j},m_{v,j}\}$ of the job $J_v$ in the disjunctive graph $G$, scheduled at timestep $t$, we define $e_i$ as the following vector: 
+ $e_{i} = (v_i, d_{v,j}, m_{v,j}, t) \in R^{4}$.
+
+ \medbreak
+ Given the set of embeddings $e_1,\dots,e_{K}$, where $K$ is the number of nodes in the disjunctive graph, we proceed in the same way NeuRewriter did, 
+ by using the same Child-Sum Tree LSTM architecture as NeuroRewriter \cite{lstm_tree} (See Section \ref{sec:states_repairing}), with the Disjunctive Graph as DAG, in order to embed both $e_i$ and the Disjunctive Graph information into one embedding $h_i \in R^{512}$: 
+ Suppose the scheduled operation $o_{i,j}$, which is represented as $v_i$ in the DAG has p parents: $parent(v_i) = \{v_k,v_{k+1},\dots,v_{k+p-1}\}, p = |parent(v_i)|$, then $$(h_i,c_i) = LSTM[(\sum_{j \in parent(v_i)}(h_j), \sum_{j \in parent(v_i)}(c_j)), e_i]$$
+where $h_0, c_0$ are randomly initialized, $h_j$,$c_j$ are the embeddings of the node $v_j$.\\
+
+\medbreak
+\subsubsection{Reward Function}
+We use the makespan as reward function. Given that our search space only contains feasible solutions, makespan is a \textbf{dense reward function}.
+
+\medbreak
+\subsubsection{Objective Function and Architecture}
+As stated in the Disjunctive Graph section \ref{sec:disjunctive}, using Disjunctive Graphs enables the usage of an algorithm capable of reaching any feasible solution $s_{j^{'}}$, starting from any other feasible solution $s_{j}$.
+
+\medbreak
+Given that, once $u_t = (v_j,v_{j^{'}})$ is sampled from the region-rule-policy $\pi_{u}(u_t|s_t;\theta)$, 
+there is only one possible rewriting rule $u_t$ (to change the direction of the selected disjunctive edge $u_t$), we decided to drop the rule-policy $\pi_{u}(u_t|s_t[w_t];\phi)$ which was present in NeuRewriter.
+
+\medbreak
+A problem of removing rule-policy from NeuRewriter is to decide which model the new region-rule-policy should use.\\
+If we kept NeuRewriter region-policy we would be learning a value function $Q(w_t,s_t;\theta)$, and then computing the policy with the Softmax function, 
+but the usage of a complete rollout as an unbiased estimator for learning $Q(w_t,s_t;\theta)$ causes high variance \cite{pierre_constructive_approach} (See Figure \ref{region_selecting_loss} for the region-selecting loss of NeuRewriter). \\
+Alternatively, we propose to use an actor-critic Proximal Policy Optimization method (AC-PPO) instead \cite{ppo}, 
+the same model and architecture as the constructive approach paper used \cite{pierre_constructive_approach}, in order to get both a more stable learning and to avoid performance collapse.
+
+\medbreak
+We split the region-rule-selecting policy in two networks, as NeuroRewriter did with the rule-selecting policy \ref{sec:rule_policy_repairing}.
+
+\medbreak
+The first network is a MLP with one hidden layer with 256 neurons and ReLu activation (the same as NeuroRewriter), that takes as input $(h_i,h_{i^{'}})$ (the embeddings of the disjunctive edge $(v_i,v_{i^{'}})$), and outputs an embedding $h_{i}^{'} \in R^{512}$. 
+As with NeuRewriter, we end up with a set of region embeddings $h_{1}^{'},\dots,h_{K}^{'}$.
+
+\medbreak
+The second network is the same architecture as the one presented in Figure \ref{img:architecture_constructive}, with the following differences: (1) The input is the vector $(h_{1}^{'},\dots,h_{K}^{'}) \in R^{512*K}$ instead of a $|J|\times7$ matrix,
+ (2) the function f, and the vector B are not present in the action-selection network, (3) the output of the action-selection network has size $R^{K}$, where $K$ is the maximum number of operations possible (If we trained our model in instances of JSSP with 30 jobs and 20 machines, then the size of the output of the action-selection network would be $30*20=600$).
+
+ \medbreak
+As we are using the same PPO method as the constructive approach, we define the objective function of the region-selecting policy the same way (See section \ref{constructive_loss}).\\
+
+
+\subsubsection{Rewriting Step Algorithm for JSSP}
+We describe a rewriting step algorithm, that, given a rewriting rule $u_t$, computes $s_{t+1}=rewriting(s_t,u_t=(v_j,v_{j^{'}}))$ (See Figure \ref{alg:rewriting_jssp}).\\
+The algorithm tries to change the direction of the selected disjunctive edge $(v_j,v_{j^{'}})$, but only if the resulting Disjunctive Graph $s_{t^{'}}$ is still acyclic (checking acyclicity requires O(V+E) time) 
+ the solution $s_{t+1}$ is updated, else it remains the same.\\
+\label{alg:rewriting_jssp}
+\begin{algorithm}[H]
+    \caption{Algorithm of a single rewriting step for JSSP}
+    \textbf{Require}: $s_t$ disjunctive graph, $(v_j, v_{j^{'}})$ a disjunctive arc of $s_t$
+    \begin{algorithmic}[1]
+    \Procedure{Rewrite}{$v_j, v_{j^{'}},s_t$}  
+        \State $s_{t^{'}}$ = swap($v_j, v_{j^{'}},s_t$)    \Comment{the directed edge ($v_j, v_{j^{'}}$) is substituted with ($v_{j^{'}},v_j$)}
+        \If{check\_cycle\_dfs($s_{t^{'}}$)}                   \Comment{If $s_{t^{'}}$ is cyclic, the solution is unfeasible}
+            \State Return $s_{t}$
+        \EndIf
+        \State Return $s_{t^{'}}$
+    \EndProcedure
+    
+    \end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Training}
+We redefine the Forward Pass Algorithm which was used to train NeuRewriter, see Figure \ref{img:training_repairing} for NeuRewriter forward pass, by removing the rule-selector $\pi_u(u_t|s_t[w_t];\phi)$ and explicitely embedding the rewriting rule for JSSP, see Algorithm \ref{alg:forward_jssp}.
+
+\label{alg:forward_jssp}
+\begin{algorithm}[H]
+    \caption{Forward Pass Algorithm for the Repairing Approach, applied to JSSP during Training, for a single episode of size $T_{iter}$}
+    \textbf{Require}: initial state $s_0$, hyperparameters $T_{iter}, T_u$
+    \begin{algorithmic}[1]
+    \For{$t=0 \rightarrow T_{iter}-1$}
+        \For{$i=1 \rightarrow T_{u}$}
+            \State Sample $u_t = (v_j,v_{j^{'}}) \sim \pi_{u}(w_t|s_t;\theta)$ where $u_t \in \Omega(s_t)$
+            \State $s_{t^{'}}=$ rewrite($v_j,v_{j^{'}},s_t$)
+            \If{check\_cycle\_dfs($s_{t^{'}}$) is FALSE}
+                \textbf{Break}
+            \EndIf
+        \EndFor
+        \State $s_{t^{'}}=$ rewrite($v_j,v_{j^{'}},s_t$) 
+        \If{check\_cycle\_dfs($s_{t^{'}}$) is TRUE}   \Comment{No feasible region found, end the episode.}
+            \State \textbf{Break}
+        \EndIf
+        \State $s_{t+1} = s_{t^{'}}$
+    \EndFor
+    
+    \end{algorithmic}
+    \end{algorithm}
+
+
+
+\section{Conclusions}
+In this work we analyze both a constructive \cite{pierre_constructive_approach}, and a repairing approach \cite{neu_rewriter} to solve NP-Hard problems, and compare 
+them. 
+We find that the repairing approach obtained better results on the NP-Hard problems it solved when compared to the results obtained by the constructive approach on JSSP, and
+ we propose a specific implementation of a repairing RL+DL network to solve JSSP, based on both papers studied in this work \cite{pierre_constructive_approach}\cite{neu_rewriter}.
+
+ \medbreak
+As for future work, in order to verify the \textbf{scalability hypothesis} of NeuRewriter applied to JSSP, either the proposed implementation, or an alternative one 
+that is only mentioned in section \ref{sec:regions} should be implemented, and compared with the results in the constructive approach \cite{pierre_constructive_approach} on Taillard's and Demirkol's instances \cite{taillard}.
+We expects the \textbf{scalability hypothesis} to hold true, and the repaired-based method to outperform the constructive-based one.
+
+Finally, the function $f$ used to embed the nodes of the Disjunctive Graph in section \ref{sec:disjunctive}, and the proposed repaired-based architecture for JSSP, could also be investigated,
+ and compared with the original ones used in NeuRewriter.
+
+
+
+\newpage
+\section{Bibliography}
+\begin{thebibliography}{10}
+\bibitem{pierre_constructive_approach}
+\href{https://arxiv.org/abs/2104.03760}{A Reinforcement Learning Environment For Job-Shop Scheduling}
+\bibitem{disjunctive_graph}
+\href{https://acrogenesis.com/or-tools/documentation/user_manual/manual/ls/jobshop_def_data.html}{The Job-Shop Problem, the disjunctive model and benchmark data}
+\bibitem{jssp_genetic}
+\href{https://www.uaeh.edu.mx/investigacion/productos/5918/the_job_shop_scheduling_problem_solved_with_the.pdf}{The Job-Shop Problem solved with TSP and Genetic Algorithms}
+\bibitem{or_tools}
+\href{https://developers.google.com/optimization}{Google OR Tools}
+\bibitem{neu_rewriter}
+\href{https://arxiv.org/abs/1810.00337}{Learning to perform local rewriting in combinatorial optimization}
+\bibitem{np_hard_euristics}
+\href{https://www.wisdom.weizmann.ac.il/~feige/Microsoft0407/japan.pdf}{Rigorous Analysis of Heuristics for NP-hard Problems}
+\bibitem{ppo}
+\href{https://arxiv.org/abs/1707.06347}{Proximal Policy Optimization Algorithms}
+\bibitem{rl_introduction}
+\href{https://www.andrew.cmu.edu/course/10-703/textbook/BartoSutton.pdf}{Reinforcement Learning: An Introduction - Andrew Barton and Richard S. Sutton}
+\bibitem{lstm_tree}
+\href{https://arxiv.org/abs/1503.00075}{Improved Semantic Representations From Tree-Structured Long Short-Term Memory Networks}
+\bibitem{VRP_vs_JSS}
+\href{https://tidel.mie.utoronto.ca/pubs/icaps03.pdf}{Vehicle Routing and Job Shop Scheduling: What's the difference?}
+\bibitem{deep_rm}
+\href{https://people.csail.mit.edu/alizadeh/papers/deeprm-hotnets16.pdf}{Resource Management with Deep Reinforcement Learning}
+\bibitem{taillard}
+\href{http://mistic.heig-vd.ch/taillard/}{Prof. Éric Taillard}
+\bibitem{wikipedia}
+\href{https://en.wikipedia.org/wiki/Job-shop_scheduling}{Wikipedia - JSSP}
+
+
+
+
+\end{thebibliography}
+
+\end{document}
+
+
+
